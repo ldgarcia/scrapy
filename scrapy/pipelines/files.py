@@ -13,6 +13,8 @@ import logging
 from six.moves.urllib.parse import urlparse
 from collections import defaultdict
 import six
+import re
+import mimetypes
 
 try:
     from cStringIO import StringIO as BytesIO
@@ -152,11 +154,17 @@ class FilesPipeline(MediaPipeline):
     }
     DEFAULT_FILES_URLS_FIELD = 'file_urls'
     DEFAULT_FILES_RESULT_FIELD = 'files'
+    DEFAULT_GUESS_MEDIA_EXT_FROM_HEADERS = False
 
     def __init__(self, store_uri, download_func=None):
         if not store_uri:
             raise NotConfigured
         self.store = self._get_store(store_uri)
+        # See: https://tools.ietf.org/html/rfc6266
+        self._content_disposition_regex = [
+            re.compile(';\s*[fF][iI][lL][eE][nN][aA][mM][eE]\*=[^;]+(\.[^;]+)'),
+            re.compile(';\s*[fF][iI][lL][eE][nN][aA][mM][eE]=[^;]+(\.[^;]+)'),
+        ]
         super(FilesPipeline, self).__init__(download_func=download_func)
 
     @classmethod
@@ -168,6 +176,7 @@ class FilesPipeline(MediaPipeline):
         cls.FILES_URLS_FIELD = settings.get('FILES_URLS_FIELD', cls.DEFAULT_FILES_URLS_FIELD)
         cls.FILES_RESULT_FIELD = settings.get('FILES_RESULT_FIELD', cls.DEFAULT_FILES_RESULT_FIELD)
         cls.EXPIRES = settings.getint('FILES_EXPIRES', 90)
+        cls.GUESS_MEDIA_EXT_FROM_HEADERS = settings.get('FILES_GUESS_MEDIA_EXT_FROM_HEADERS', cls.DEFAULT_GUESS_MEDIA_EXT_FROM_HEADERS)
         store_uri = settings['FILES_STORE']
         return cls(store_uri)
 
@@ -325,8 +334,18 @@ class FilesPipeline(MediaPipeline):
         ## end of deprecation warning block
 
         media_guid = hashlib.sha1(url).hexdigest()  # change to request.url after deprecation
-        media_ext = os.path.splitext(url)[1]  # change to request.url after deprecation
-        return 'full/%s%s' % (media_guid, media_ext)
+        media_ext_guess = None
+        if self.GUESS_MEDIA_EXT_FROM_HEADERS and response:
+            if 'Content-Type' in response.headers:
+                media_ext_guess = mimetypes.guess_extension(response.headers['Content-Type'])
+            if not media_ext_guess and 'Content-Disposition' in response.headers:
+                for regex in self._content_disposition_regex:
+                    media_ext_guess = regex.findall(response.headers['Content-Disposition'])
+                    if media_ext_guess:
+                        media_ext_guess = media_ext_guess[0]
+                        break
+        media_ext = media_ext_guess or os.path.splitext(url)[1]  # change to request.url after deprecation
+        return 'full/{}{}'.format(media_guid, media_ext)
 
     # deprecated
     def file_key(self, url):

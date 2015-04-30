@@ -101,6 +101,44 @@ class FilesPipelineTestCase(unittest.TestCase):
             p.stop()
 
 
+class FilesPipelineGuessExtensionTestCase(FilesPipelineTestCase):
+
+    def setUp(self):
+        self.tempdir = mkdtemp()
+        self.pipeline = FilesPipeline.from_settings(Settings({
+            'FILES_STORE': self.tempdir,
+            'FILES_GUESS_MEDIA_EXT_FROM_HEADERS':True}))
+        self.pipeline.download_func = _mocked_download_func
+        self.pipeline.open_spider(None)
+
+    def test_file_path(self):
+        file_path = self.pipeline.file_path
+        self.assertEqual(file_path(Request("https://dev.mydeco.com/mydeco.0954565656767"),
+                                   response=Response("https://dev.mydeco.com/mydeco.0954565656767", headers={'Content-Type':'application/pdf'}),
+                                   info=object()),
+                         'full/c10963c3a05931d7ffa5e49011c7b590dd978548.pdf')
+        self.assertEqual(file_path(Request("https://dev.mydeco.com/mydeco.0954565656767"),
+                                   response=Response("https://dev.mydeco.com/mydeco.0954565656767", headers={'Content-Disposition':'inline;FiLeNamE=0954565656767.foo;FiLeNamE*=0954565656767.pdf'}),
+                                   info=object()),
+                         'full/c10963c3a05931d7ffa5e49011c7b590dd978548.pdf')
+        self.assertEqual(file_path(Request("https://dev.mydeco.com/mydeco.0954565656767"),
+                                   response=Response("https://dev.mydeco.com/mydeco.0954565656767", headers={'Content-Disposition':'inline;   FiLeNamE=0954565656767.pdf'}),
+                                   info=object()),
+                         'full/c10963c3a05931d7ffa5e49011c7b590dd978548.pdf')
+        self.assertEqual(file_path(Request("https://dev.mydeco.com/mydeco.0954565656767"),
+                                   response=Response("https://dev.mydeco.com/mydeco.0954565656767", headers={'Content-Type':'0954565656767'}),
+                                   info=object()),
+                         'full/c10963c3a05931d7ffa5e49011c7b590dd978548.0954565656767')
+        self.assertEqual(file_path(Request("https://dev.mydeco.com/mydeco.0954565656767"),
+                                   response=Response("https://dev.mydeco.com/mydeco.0954565656767", headers={'Content-Disposition':'inline;  filename=0954565656767'}),
+                                   info=object()),
+                         'full/c10963c3a05931d7ffa5e49011c7b590dd978548.0954565656767')
+        self.assertEqual(file_path(Request("https://dev.mydeco.com/mydeco.0954565656767"),
+                                   response=Response("https://dev.mydeco.com/mydeco.0954565656767", headers={}),
+                                   info=object()),
+                         'full/c10963c3a05931d7ffa5e49011c7b590dd978548.0954565656767')
+        super(FilesPipelineGuessExtensionTestCase, self).test_file_path()
+
 class DeprecatedFilesPipeline(FilesPipeline):
     def file_key(self, url):
         media_guid = hashlib.sha1(url).hexdigest()
